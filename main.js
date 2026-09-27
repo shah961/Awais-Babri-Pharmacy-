@@ -1,152 +1,204 @@
 /* ==========================================================================
-   Awais Babri Pharmacy — animations.js
-   Lightweight GSAP-powered motion. Respects prefers-reduced-motion.
-   No ScrollTrigger plugin loaded — IntersectionObserver drives reveals
-   to keep the network payload small.
+   Awais Babri Pharmacy — main.js
+   Mobile navigation (click-only, no swipe), FAQ accordion,
+   contact form placeholder handling, small utilities.
    ========================================================================== */
 (function () {
   "use strict";
 
-  var prefersReduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  var hasGSAP = typeof window.gsap !== "undefined";
+  document.addEventListener("DOMContentLoaded", function () {
+    initMobileMenu();
+    initFaq();
+    initContactForm();
+    initFooterYear();
+  });
 
-  document.documentElement.classList.add("gsap-ready");
+  /* ---------------------------------------------------------------------
+     Mobile navigation
+     - Opens ONLY on click/tap of the hamburger button
+     - No swipe gestures are attached anywhere
+     - Escape key and outside click close it
+     - Body scroll is locked while open
+     - aria-expanded / aria-controls kept in sync
+  --------------------------------------------------------------------- */
+  function initMobileMenu() {
+    var toggle = document.querySelector("[data-menu-toggle]");
+    var menu = document.querySelector("[data-mobile-menu]");
+    var closeBtn = document.querySelector("[data-menu-close]");
+    if (!toggle || !menu) return;
 
-  /* ---- Hero reveal (single orchestrated moment) ---- */
-  function heroReveal() {
-    var hero = document.querySelector("[data-hero]");
-    if (!hero) return;
+    var lastFocused = null;
 
-    var targets = hero.querySelectorAll("[data-reveal]");
-    if (!hasGSAP || prefersReduced) {
-      targets.forEach(function (el) { el.style.opacity = 1; });
-      return;
+    function trapFocus(e) {
+      if (e.key !== "Tab") return;
+      var focusables = menu.querySelectorAll('a[href], button:not([disabled])');
+      if (!focusables.length) return;
+      var first = focusables[0];
+      var last = focusables[focusables.length - 1];
+
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
     }
 
-    gsap.set(targets, { opacity: 0, y: 22 });
-    gsap.to(targets, {
-      opacity: 1,
-      y: 0,
-      duration: 0.9,
-      ease: "power3.out",
-      stagger: 0.12,
-      delay: 0.1
+    function openMenu() {
+      lastFocused = document.activeElement;
+      menu.classList.add("is-open");
+      document.body.classList.add("menu-open");
+      toggle.setAttribute("aria-expanded", "true");
+      menu.setAttribute("aria-hidden", "false");
+
+      if (window.PharmacyMenuAnimation) {
+        window.PharmacyMenuAnimation.open(menu);
+      }
+
+      document.addEventListener("keydown", onKeydown);
+      document.addEventListener("click", onOutsideClick, true);
+      document.addEventListener("keydown", trapFocus);
+
+      window.setTimeout(function () {
+        if (closeBtn) closeBtn.focus();
+      }, 60);
+    }
+
+    function closeMenu() {
+      toggle.setAttribute("aria-expanded", "false");
+      menu.setAttribute("aria-hidden", "true");
+      document.body.classList.remove("menu-open");
+
+      var finish = function () {
+        menu.classList.remove("is-open");
+      };
+
+      if (window.PharmacyMenuAnimation) {
+        window.PharmacyMenuAnimation.close(menu, finish);
+      } else {
+        finish();
+      }
+
+      document.removeEventListener("keydown", onKeydown);
+      document.removeEventListener("click", onOutsideClick, true);
+      document.removeEventListener("keydown", trapFocus);
+
+      if (lastFocused && typeof lastFocused.focus === "function") {
+        lastFocused.focus();
+      }
+    }
+
+    function onKeydown(e) {
+      if (e.key === "Escape") closeMenu();
+    }
+
+    function onOutsideClick(e) {
+      if (!menu.classList.contains("is-open")) return;
+      var withinMenu = menu.contains(e.target);
+      var isToggle = toggle.contains(e.target);
+      if (!withinMenu && !isToggle) closeMenu();
+    }
+
+    toggle.addEventListener("click", function () {
+      var isOpen = toggle.getAttribute("aria-expanded") === "true";
+      if (isOpen) {
+        closeMenu();
+      } else {
+        openMenu();
+      }
+    });
+
+    if (closeBtn) {
+      closeBtn.addEventListener("click", closeMenu);
+    }
+
+    var menuLinks = menu.querySelectorAll("a");
+    menuLinks.forEach(function (link) {
+      link.addEventListener("click", closeMenu);
     });
   }
 
-  /* ---- Scroll reveals via IntersectionObserver (no ScrollTrigger needed) ---- */
-  function scrollReveals() {
-    var items = document.querySelectorAll("[data-reveal-scroll]");
+  /* ---------------------------------------------------------------------
+     FAQ accordion (contact page)
+  --------------------------------------------------------------------- */
+  function initFaq() {
+    var items = document.querySelectorAll("[data-faq-item]");
     if (!items.length) return;
 
-    if (!hasGSAP || prefersReduced || !("IntersectionObserver" in window)) {
-      items.forEach(function (el) { el.style.opacity = 1; });
-      return;
-    }
+    items.forEach(function (item) {
+      var question = item.querySelector(".faq-q");
+      var answer = item.querySelector(".faq-a");
+      if (!question || !answer) return;
 
-    gsap.set(items, { opacity: 0, y: 18 });
+      question.addEventListener("click", function () {
+        var isOpen = item.getAttribute("data-open") === "true";
 
-    var observer = new IntersectionObserver(
-      function (entries, obs) {
-        entries.forEach(function (entry) {
-          if (entry.isIntersecting) {
-            gsap.to(entry.target, { opacity: 1, y: 0, duration: 0.7, ease: "power2.out" });
-            obs.unobserve(entry.target);
+        items.forEach(function (other) {
+          if (other !== item) {
+            other.setAttribute("data-open", "false");
+            other.querySelector(".faq-q").setAttribute("aria-expanded", "false");
+            other.querySelector(".faq-a").style.maxHeight = null;
           }
         });
-      },
-      { threshold: 0.15, rootMargin: "0px 0px -8% 0px" }
-    );
 
-    items.forEach(function (el) { observer.observe(el); });
-  }
-
-  /* ---- Staggered groups (card grids, list rows) ---- */
-  function staggerGroups() {
-    var groups = document.querySelectorAll("[data-reveal-group]");
-    if (!groups.length) return;
-
-    if (!hasGSAP || prefersReduced || !("IntersectionObserver" in window)) {
-      groups.forEach(function (g) {
-        Array.prototype.forEach.call(g.children, function (c) { c.style.opacity = 1; });
+        if (isOpen) {
+          item.setAttribute("data-open", "false");
+          question.setAttribute("aria-expanded", "false");
+          answer.style.maxHeight = null;
+        } else {
+          item.setAttribute("data-open", "true");
+          question.setAttribute("aria-expanded", "true");
+          answer.style.maxHeight = answer.scrollHeight + "px";
+        }
       });
-      return;
-    }
-
-    groups.forEach(function (group) {
-      var children = group.children;
-      gsap.set(children, { opacity: 0, y: 16 });
-
-      var observer = new IntersectionObserver(
-        function (entries, obs) {
-          entries.forEach(function (entry) {
-            if (entry.isIntersecting) {
-              gsap.to(entry.target.children, {
-                opacity: 1,
-                y: 0,
-                duration: 0.6,
-                ease: "power2.out",
-                stagger: 0.08
-              });
-              obs.unobserve(entry.target);
-            }
-          });
-        },
-        { threshold: 0.1 }
-      );
-      observer.observe(group);
     });
   }
 
-  /* ---- Mobile menu open/close animation ---- */
-  window.PharmacyMenuAnimation = {
-    open: function (menuEl, onComplete) {
-      if (!hasGSAP || prefersReduced) {
-        menuEl.style.transform = "translateX(0)";
-        if (onComplete) onComplete();
-        return;
-      }
-      gsap.killTweensOf(menuEl);
-      gsap.set(menuEl, { transform: "translateX(100%)" });
-      gsap.to(menuEl, {
-        transform: "translateX(0%)",
-        duration: 0.45,
-        ease: "power3.out",
-        onComplete: onComplete
+  /* ---------------------------------------------------------------------
+     Contact form
+     There is no backend on this site. The form does not send data
+     anywhere. We only confirm receipt visually and point the visitor
+     to the phone number for anything time-sensitive.
+  --------------------------------------------------------------------- */
+  function initContactForm() {
+    var form = document.querySelector("[data-contact-form]");
+    if (!form) return;
+
+    var successBox = form.querySelector(".form-success");
+
+    form.addEventListener("submit", function (e) {
+      e.preventDefault();
+
+      var name = form.querySelector("#contact-name");
+      var phone = form.querySelector("#contact-phone");
+      var valid = true;
+
+      [name, phone].forEach(function (field) {
+        if (field && !field.value.trim()) {
+          field.setAttribute("aria-invalid", "true");
+          valid = false;
+        } else if (field) {
+          field.removeAttribute("aria-invalid");
+        }
       });
 
-      var links = menuEl.querySelectorAll(".mobile-nav-list a");
-      gsap.fromTo(
-        links,
-        { opacity: 0, x: 16 },
-        { opacity: 1, x: 0, duration: 0.4, ease: "power2.out", stagger: 0.05, delay: 0.15 }
-      );
-    },
-    close: function (menuEl, onComplete) {
-      if (!hasGSAP || prefersReduced) {
-        menuEl.style.transform = "translateX(100%)";
-        if (onComplete) onComplete();
-        return;
-      }
-      gsap.killTweensOf(menuEl);
-      gsap.to(menuEl, {
-        transform: "translateX(100%)",
-        duration: 0.35,
-        ease: "power2.in",
-        onComplete: onComplete
-      });
-    }
-  };
+      if (!valid) return;
 
-  function init() {
-    try { heroReveal(); } catch (e) { /* fail silent, layout still usable */ }
-    try { scrollReveals(); } catch (e) {}
-    try { staggerGroups(); } catch (e) {}
+      if (successBox) {
+        successBox.classList.add("is-visible");
+        successBox.setAttribute("role", "status");
+      }
+      form.reset();
+    });
   }
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", init);
-  } else {
-    init();
+  /* ---------------------------------------------------------------------
+     Footer year
+  --------------------------------------------------------------------- */
+  function initFooterYear() {
+    var els = document.querySelectorAll("[data-year]");
+    var year = new Date().getFullYear();
+    els.forEach(function (el) { el.textContent = year; });
   }
 })();
